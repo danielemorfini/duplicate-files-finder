@@ -6,7 +6,18 @@
  */
 
 import fs from "fs";
-import path from "path";
+import path, { resolve } from "path";
+import crypto, { hash } from "crypto";
+
+/* ########################################################################## */
+/* #### UTILITIES ########################################################### */
+/* ########################################################################## */
+
+
+
+/* ########################################################################## */
+/* #### TASKS ############################################################### */
+/* ########################################################################## */
 
 /**
  * Recursively scan a directory and return an array of file paths.
@@ -26,8 +37,7 @@ async function scan(root) {
 	const _scan = async (dir) => {
 		let entries;
 
-		try
-		{
+		try {
 			entries = await fs.promises.readdir(dir, { withFileTypes: true });
 		} catch (err) {
 			console.warn(`[ WARNING ] : cannot read directory '${dir}': ${err.message}`);
@@ -37,8 +47,7 @@ async function scan(root) {
 		for (const entry of entries) {
 			const resolved = path.resolve(dir, entry.name);
 
-			try
-			{
+			try {
 				if (entry.isDirectory()) {
 					await _scan(resolved);
 				}
@@ -55,6 +64,30 @@ async function scan(root) {
 	await _scan(root);
 	return results;
 }
+
+/**
+ * Returns the hash corresponding to the given file
+ * @param {string} filePath The file path
+ * @returns
+ */
+async function getFileHash(filePath) {
+	return new Promise(resolve => {
+		const hash = crypto.createHash('sha256');
+		const stream = fs.createReadStream(filePath);
+
+		stream.on('error', (err) => {
+			console.warn(`[ WARNING ] : cannot read file '${filePath}': ${err.message}`);
+			resolve(null);
+		})
+
+		stream.on('data', chunk => { hash.update(chunk) });
+		stream.on('end', () => resolve(hash.digest('hex')));
+	});
+}
+
+/* ########################################################################## */
+/* #### MAIN ################################################################ */
+/* ########################################################################## */
 
 async function main() {
 
@@ -78,6 +111,11 @@ async function main() {
 
 	const _path = path.resolve(folderPath);
 	const files = await scan(_path);
+
+	for (const file of files) {
+		const h = await getFileHash(file);
+		console.log(`[FILE] : ${h || 'n/a'} | ${file}`);
+	}
 
 	console.log(`Files found: ${files.length}`);
 	console.table(files);
