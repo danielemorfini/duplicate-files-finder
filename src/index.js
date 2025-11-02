@@ -12,9 +12,10 @@ import { scan } from "./tasks/dff.tasks.js";
 import { findDuplicates } from "./tasks/dff.tasks.js";
 
 /* ########################################################################## */
-/* #### MAIN ################################################################ */
-/* ########################################################################## */
 
+/**
+ * Main function of the `duplicate-files-finder` application
+ */
 async function main() {
 
 	console.log('');
@@ -23,6 +24,7 @@ async function main() {
 	console.log('################################################################################');
 	console.log('');
 
+	/* VALIDATES FOLDER */
 	const folderPath = process.argv[2];
 
 	if (!folderPath) {
@@ -35,10 +37,14 @@ async function main() {
 		process.exit(1);
 	}
 
+
+	/* START SCANNING FOLDERS & FILES */
 	const _path = path.resolve(folderPath);
 	const files = await scan(_path);
 	const duplicates = await findDuplicates(files);
 
+
+	/* OUTPUT RESULTS */
 	console.log(`Files found: ${files.length}`);
 	console.table(files);
 	console.log(`[ DONE ]`);
