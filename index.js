@@ -13,7 +13,15 @@ import crypto, { hash } from "crypto";
 /* #### UTILITIES ########################################################### */
 /* ########################################################################## */
 
-
+/**
+ * Returns a boolean based on the fact that the provided resource name starts
+ * with the '.' character, meaning it's a hidden resource
+ * @param {string} resource The resource name
+ * @returns {bool}
+ */
+function isHidden(resource) {
+	return resource.startsWith('.');
+}
 
 /* ########################################################################## */
 /* #### TASKS ############################################################### */
@@ -48,11 +56,14 @@ async function scan(root) {
 			const resolved = path.resolve(dir, entry.name);
 
 			try {
+
 				if (entry.isDirectory()) {
+					if (isHidden(entry.name)) throw new Error('[A110] - Skipping hidden folders');
 					await _scan(resolved);
 				}
 
 				if (entry.isFile()) {
+					if (isHidden(entry.name)) throw new Error('[A120] - Skipping hidden files');
 					results.push(resolved);
 				}
 			} catch (err) {
@@ -85,6 +96,38 @@ async function getFileHash(filePath) {
 	});
 }
 
+/**
+ * Returns a map containing the association between the file hash and its
+ * duplicates paths
+ * 
+ * Example:
+ * - `<hash>` | `<file-path-00>` | `<file-path-01>` | `<file-path-N>`
+ *
+ * @param {Array} files The list of file paths in the scanned directories
+ * @returns 
+ */
+async function findDuplicates(files) {
+	const map = new Map();
+	const duplicates = [];
+
+	for (const file of files) {
+		const h = await getFileHash(file);
+		if (!h) continue;
+
+		if (!map.has(h)) {
+			map.set(h, []);
+		}
+
+		map.get(h).push(file);
+	}
+
+	for (const paths of map.values()) {
+		if (paths.length > 1) duplicates.push(paths);
+	}
+
+	return duplicates;
+}
+
 /* ########################################################################## */
 /* #### MAIN ################################################################ */
 /* ########################################################################## */
@@ -111,14 +154,16 @@ async function main() {
 
 	const _path = path.resolve(folderPath);
 	const files = await scan(_path);
-
-	for (const file of files) {
-		const h = await getFileHash(file);
-		console.log(`[FILE] : ${h || 'n/a'} | ${file}`);
-	}
+	const duplicates = await findDuplicates(files);
 
 	console.log(`Files found: ${files.length}`);
 	console.table(files);
+	console.log(`[ DONE ]`);
+
+	console.log('');
+
+	console.log(`Duplicates found: ${duplicates.length}`);
+	console.table(duplicates);
 	console.log(`[ DONE ]`);
 
 	console.log('');
