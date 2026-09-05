@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { scan, getFileHash, findDuplicates } from "../src/tasks/dff.tasks.js";
+import { scan, getFileHash, findDuplicates, resolveDuplicates } from "../src/tasks/dff.tasks.js";
 
 /* ########################################################################## */
 
@@ -25,6 +25,8 @@ const writeFile = (relPath, content) => {
 	fs.writeFileSync(full, content);
 	return full;
 }
+
+const setMtime = (filePath, date) => fs.utimesSync(filePath, date, date);
 
 /* ########################################################################## */
 
@@ -103,5 +105,86 @@ describe("findDuplicates", () => {
 
 		assert.equal(duplicates.length, 1);
 		assert.deepEqual(duplicates[0].sort(), [a, b, c].sort());
+	});
+});
+
+describe("resolveDuplicates", () => {
+	test("dry run: keeps the oldest file and reports the rest as candidates, deleting nothing", async () => {
+		const older = writeFile("a.txt", "dup");
+		const newer = writeFile("nested/b.txt", "dup");
+		setMtime(older, new Date(2020, 0, 1));
+		setMtime(newer, new Date(2021, 0, 1));
+
+		const duplicates = await findDuplicates(await scan(tmpDir));
+		const report = await resolveDuplicates(duplicates);
+
+		assert.equal(report.length, 1);
+		assert.equal(report[0].keep, older);
+		assert.deepEqual(report[0].candidates, [newer]);
+		assert.deepEqual(report[0].removed, []);
+		assert.deepEqual(report[0].errors, []);
+		assert.ok(fs.existsSync(newer), "dry run must not delete any file");
+	});
+
+	test("apply: deletes every file in the group except the oldest", async () => {
+		const older = writeFile("a.txt", "dup");
+		const newer1 = writeFile("nested/b.txt", "dup");
+		const newer2 = writeFile("nested/deeper/c.txt", "dup");
+		setMtime(older, new Date(2020, 0, 1));
+		setMtime(newer1, new Date(2021, 0, 1));
+		setMtime(newer2, new Date(2022, 0, 1));
+
+		const duplicates = await findDuplicates(await scan(tmpDir));
+		const report = await resolveDuplicates(duplicates, { apply: true });
+
+		assert.equal(report.length, 1);
+		assert.equal(report[0].keep, older);
+		assert.deepEqual(report[0].removed.sort(), [newer1, newer2].sort());
+		assert.deepEqual(report[0].errors, []);
+
+		assert.ok(fs.existsSync(older), "the oldest file must survive");
+		assert.ok(!fs.existsSync(newer1));
+		assert.ok(!fs.existsSync(newer2));
+	});
+
+	test("breaks ties on identical mtimes alphabetically", async () => {
+		const a = writeFile("a.txt", "dup");
+		const z = writeFile("z.txt", "dup");
+		const sameDate = new Date(2020, 0, 1);
+		setMtime(a, sameDate);
+		setMtime(z, sameDate);
+
+		const duplicates = await findDuplicates(await scan(tmpDir));
+		const report = await resolveDuplicates(duplicates);
+
+		assert.equal(report[0].keep, a);
+		assert.deepEqual(report[0].candidates, [z]);
+	});
+
+	test("records a per-file error and keeps going when a delete fails", async () => {
+		const keep = writeFile("keep.txt", "dup");
+		const blocked = writeFile("locked/blocked.txt", "dup");
+		setMtime(keep, new Date(2020, 0, 1));
+		setMtime(blocked, new Date(2021, 0, 1));
+
+		/* removes write permission on the parent dir so unlink() fails on
+		   'blocked' while stat()/readdir() (which only need read+exec) still
+		   succeed - simulates a delete failing without aborting the run */
+		const lockedDir = path.dirname(blocked);
+		fs.chmodSync(lockedDir, 0o500);
+
+		try {
+			const duplicates = await findDuplicates(await scan(tmpDir));
+			const report = await resolveDuplicates(duplicates, { apply: true });
+
+			assert.equal(report.length, 1);
+			assert.equal(report[0].keep, keep);
+			assert.deepEqual(report[0].removed, []);
+			assert.equal(report[0].errors.length, 1);
+			assert.equal(report[0].errors[0].file, blocked);
+			assert.ok(fs.existsSync(blocked), "blocked file must not have been deleted");
+		} finally {
+			fs.chmodSync(lockedDir, 0o700);
+		}
 	});
 });
