@@ -2,13 +2,14 @@
 
 /**
  * Find duplicate files recursively in a given folder.
- * Usage: node index.js <folder_path>
+ * Usage: node index.js <folder_path> [--delete-duplicates] [--yes]
  */
 
 import fs from "fs";
 import path from "path";
 
-import { scan, findDuplicates } from "./tasks/dff.tasks.js";
+import { scan, findDuplicates, resolveDuplicates } from "./tasks/dff.tasks.js";
+import { toDisplayPath } from "./utils/dff.utils.js";
 
 /* ########################################################################## */
 
@@ -25,9 +26,12 @@ async function main() {
 
 	/* VALIDATES FOLDER */
 	const folderPath = process.argv[2];
+	const flags = process.argv.slice(3);
+	const shouldDelete = flags.includes('--delete-duplicates');
+	const confirmed = flags.includes('--yes');
 
 	if (!folderPath) {
-		console.error("Usage: node index.js <folder_path>");
+		console.error("Usage: node index.js <folder_path> [--delete-duplicates] [--yes]");
 		process.exit(1);
 	}
 
@@ -45,16 +49,38 @@ async function main() {
 
 	/* OUTPUT RESULTS */
 	console.log(`Files found: ${files.length}`);
-	console.table(files);
+	console.table(files.map(f => toDisplayPath(_path, f)));
 	console.log(`[ DONE ]`);
 
 	console.log('');
 
 	console.log(`Duplicates found: ${duplicates.length}`);
-	console.table(duplicates);
+	console.table(duplicates.map(group => group.map(f => toDisplayPath(_path, f))));
 	console.log(`[ DONE ]`);
 
 	console.log('');
+
+	/* RESOLVE DUPLICATES (OPTIONAL) */
+	if (shouldDelete && duplicates.length > 0) {
+		console.log(confirmed
+			? 'Deleting duplicates (keeping the oldest copy per group)...'
+			: 'Dry run: showing what would be deleted (re-run with --yes to actually delete)'
+		);
+
+		const report = await resolveDuplicates(duplicates, { apply: confirmed });
+
+		console.table(report.map(r => ({
+			keep: toDisplayPath(_path, r.keep),
+			[confirmed ? 'removed' : 'would_remove']: (confirmed ? r.removed : r.candidates)
+				.map(f => toDisplayPath(_path, f))
+				.join(', '),
+			errors: r.errors.map(e => `${toDisplayPath(_path, e.file)}: ${e.message}`).join(', ') || '-',
+		})));
+
+		console.log(`[ DONE ]`);
+		console.log('');
+	}
+
 	console.log('################################################################################');
 	console.log('#### SCRIPT STOPPING');
 	console.log('################################################################################');

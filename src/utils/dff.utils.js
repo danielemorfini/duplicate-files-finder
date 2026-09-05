@@ -1,8 +1,10 @@
 /**
  * Script: dff.utils.js
- * 
+ *
  * Exports a set of utilities used throughout the `duplicate-files-finder` app
  */
+
+import path from "path";
 
 /* ########################################################################## */
 
@@ -37,4 +39,16 @@ export const mapWithConcurrency = async (items, concurrency, fn) => {
 
 	await Promise.all(workers);
 	return results;
+}
+
+/**
+ * Formats an absolute file path for display, replacing `basePath` with the
+ * `$basePath` token so reports read as paths relative to the scanned folder.
+ * @param {string} basePath The scanned root folder (absolute path)
+ * @param {string} filePath An absolute file path under `basePath`
+ * @returns {string}
+ */
+export const toDisplayPath = (basePath, filePath) => {
+	const relative = path.relative(basePath, filePath);
+	return relative ? `$basePath${path.sep}${relative}` : '$basePath';
 }

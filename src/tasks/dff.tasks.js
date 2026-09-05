@@ -153,3 +153,58 @@ export const findDuplicates = async (files, { concurrency = 8 } = {}) => {
 
 	return duplicates;
 }
+
+/**
+ * Given a group of duplicate file paths, picks the one to keep (oldest by
+ * modification time, breaking ties alphabetically for determinism) and
+ * returns the rest as candidates for removal.
+ *
+ * @param {string[]} paths A group of duplicate file paths
+ * @returns {Promise<{keep: string, remove: string[]}>}
+ */
+const pickKeeper = async paths => {
+	const stats = await Promise.all(paths.map(async p => ({
+		path: p,
+		mtimeMs: (await fs.promises.stat(p)).mtimeMs,
+	})));
+
+	stats.sort((a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path));
+
+	const [keep, ...rest] = stats.map(s => s.path);
+	return { keep, remove: rest };
+}
+
+/**
+ * Resolves each duplicate group by keeping one file (the oldest) and
+ * removing the rest. When `apply` is false (the default) no file is
+ * touched, only the resolution plan is returned - useful for a dry run.
+ *
+ * @param {Array<string[]>} duplicates Groups of duplicate file paths
+ * @param {object} [options]
+ * @param {boolean} [options.apply=false] Actually delete the redundant files
+ * @returns {Promise<Array<{keep: string, candidates: string[], removed: string[], errors: Array<{file: string, message: string}>}>>}
+ */
+export const resolveDuplicates = async (duplicates, { apply = false } = {}) => {
+	const report = [];
+
+	for (const group of duplicates) {
+		const { keep, remove } = await pickKeeper(group);
+		const removed = [];
+		const errors = [];
+
+		if (apply) {
+			for (const file of remove) {
+				try {
+					await fs.promises.unlink(file);
+					removed.push(file);
+				} catch (err) {
+					errors.push({ file, message: err.message });
+				}
+			}
+		}
+
+		report.push({ keep, candidates: remove, removed, errors });
+	}
+
+	return report;
+}
