@@ -15,3 +15,26 @@
 export const isHidden = resource => {
 	return resource.startsWith('.');
 }
+
+/**
+ * Runs `fn` over `items` with at most `concurrency` calls in flight at once,
+ * preserving the input order in the returned array.
+ * @param {Array} items The items to process
+ * @param {number} concurrency Max number of concurrent `fn` calls
+ * @param {Function} fn `(item, index) => Promise`
+ * @returns {Promise<Array>}
+ */
+export const mapWithConcurrency = async (items, concurrency, fn) => {
+	const results = new Array(items.length);
+	let next = 0;
+
+	const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+		while (next < items.length) {
+			const index = next++;
+			results[index] = await fn(items[index], index);
+		}
+	});
+
+	await Promise.all(workers);
+	return results;
+}

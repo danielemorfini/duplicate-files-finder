@@ -8,7 +8,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
-import { isHidden } from "../utils/dff.utils.js";
+import { isHidden, mapWithConcurrency } from "../utils/dff.utils.js";
 
 /* ########################################################################## */
 
@@ -82,29 +82,70 @@ export const getFileHash = async filePath => {
 }
 
 /**
+ * Groups the given file paths by size, skipping files that cannot be stat'd.
+ * Files with a size unique across the whole set can't have a duplicate, so
+ * this lets `findDuplicates` avoid hashing them at all.
+ *
+ * @param {Array} files The list of file paths in the scanned directories
+ * @returns {Promise<Map<number, string[]>>}
+ */
+const groupBySize = async files => {
+	const map = new Map();
+
+	for (const file of files) {
+		let size;
+
+		try {
+			({ size } = await fs.promises.stat(file));
+		} catch (err) {
+			console.warn(`[ WARNING ] : cannot stat file '${file}': ${err.message}`);
+			continue;
+		}
+
+		if (!map.has(size)) {
+			map.set(size, []);
+		}
+
+		map.get(size).push(file);
+	}
+
+	return map;
+}
+
+/**
  * Returns a map containing the association between the file hash and its
  * duplicates paths
- * 
+ *
  * Example:
  * - `<hash>` | `<file-path-00>` | `<file-path-01>` | `<file-path-N>`
  *
  * @param {Array} files The list of file paths in the scanned directories
- * @returns 
+ * @param {object} [options]
+ * @param {number} [options.concurrency=8] Max number of files hashed in parallel
+ * @returns
  */
-export const findDuplicates = async files => {
+export const findDuplicates = async (files, { concurrency = 8 } = {}) => {
 	const map = new Map();
 	const duplicates = [];
 
-	for (const file of files) {
+	/* GROUP BY SIZE FIRST: files with no size match can't be duplicates,
+	   so they're skipped before the expensive hashing step */
+	const bySize = await groupBySize(files);
+	const candidates = [];
+	for (const paths of bySize.values()) {
+		if (paths.length > 1) candidates.push(...paths);
+	}
+
+	await mapWithConcurrency(candidates, concurrency, async file => {
 		const h = await getFileHash(file);
-		if (!h) continue;
+		if (!h) return;
 
 		if (!map.has(h)) {
 			map.set(h, []);
 		}
 
 		map.get(h).push(file);
-	}
+	});
 
 	for (const paths of map.values()) {
 		if (paths.length > 1) duplicates.push(paths);

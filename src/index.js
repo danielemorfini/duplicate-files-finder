@@ -8,8 +8,7 @@
 import fs from "fs";
 import path from "path";
 
-import { scan } from "./tasks/dff.tasks.js";
-import { findDuplicates } from "./tasks/dff.tasks.js";
+import { scan, findDuplicates } from "./tasks/dff.tasks.js";
 
 /* ########################################################################## */
 
