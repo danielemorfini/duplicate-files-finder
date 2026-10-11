@@ -1,6 +1,6 @@
 # Duplicate files finder
 
-Simple `node-cli` application to find duplicate files in a given directory recursively by `hash`.
+A `node-cli` application to find duplicate files in a given directory recursively by `hash`.
 
 > **Note:** this is a personal utility, built and tuned for my own occasional use rather than as a general-purpose tool.
 >
